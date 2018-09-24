@@ -187,6 +187,7 @@ func (p *limitedPool) newWorker(work chan *workUnit, cancel chan struct{}) {
 					//too long idle exit
 					p.m.Lock()
 					if p.currworkers >= p.minWorkers{
+						p.currworkers --
 						p.m.Unlock()
 						return
 					}
