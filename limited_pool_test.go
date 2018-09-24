@@ -203,8 +203,10 @@ func TestNewExtLimited(t *testing.T) {
 		wu := pool.Queue(newFunc(time.Second * 5))
 		res = append(res, wu)
 	}
-	time.Sleep(10 *time.Second)
+
 	for _,r := range res{
 		r.Wait()
 	}
+
+	time.Sleep(60 *time.Second)
 }
