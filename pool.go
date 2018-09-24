@@ -2,7 +2,6 @@ package pool
 
 // Pool contains all information for a pool instance.
 type Pool interface {
-
 	// Queue queues the work to be run, and starts processing immediately
 	Queue(fn WorkFunc) WorkUnit
 
@@ -26,6 +25,14 @@ type Pool interface {
 	// channel as they complete. NOTE: Batch is not reusable, once QueueComplete()
 	// has been called it's lifetime has been sealed to completing the Queued items.
 	Batch() Batch
+
+	//monitor Pool Data
+	CurrWorkers() uint
+
+	MaxWorkers() uint
+
+	//Incomplete Task
+	IncompleteTasks() uint
 }
 
 // WorkFunc is the function type needed by the pool for execution

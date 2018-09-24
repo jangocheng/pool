@@ -20,6 +20,7 @@ type limitedPool struct {
 	//the max duration goroutine alive
 	currworkers uint //current workers
 	minWorkers uint
+	qsize uint //queue size
 	timeToLive time.Duration
 }
 
@@ -31,32 +32,53 @@ func NewLimited(workers uint) Pool {
 	}
 
 	timeToLive := 1 * time.Minute
-	return NewExtLimited((workers * 10)/8,workers,timeToLive)
+	return NewExtLimited((workers * 10)/8,workers,2*workers,timeToLive)
 }
 
+
 // NewExtLimited returns a new limited pool instance with args
-func NewExtLimited(minworkers,workers uint,ttl time.Duration) Pool{
-	if workers == 0 || minworkers ==0 {
+func NewExtLimited(minworkers,maxworkers uint,qsize uint,ttl time.Duration) Pool{
+	if maxworkers == 0 || minworkers ==0 {
 		panic("invalid workers '0'")
 	}
 
 	p := &limitedPool{
-		workers: workers,
+		workers: maxworkers,
+		minWorkers:minworkers,
+		timeToLive:ttl,
+		qsize:qsize,
 	}
-	p.timeToLive = 1 * time.Minute
-	//0.5
-	p.minWorkers =  (workers * 10)/5
 	if p.minWorkers <= 0 {
-		p.minWorkers = 1
+		p.minWorkers = maxworkers * 5 / 10
 	}
+
+	if p.qsize < maxworkers *2{
+		p.qsize = maxworkers *2
+	}
+
 	p.initialize()
 
 	return p
 }
 
+//current workers
+func (p *limitedPool) CurrWorkers() uint {
+	return p.currworkers
+}
+
+func (p *limitedPool) MaxWorkers() uint{
+	return p.workers
+}
+
+//Incomplete Task
+func(p *limitedPool) IncompleteTasks() uint{
+	return uint(len(p.work))
+}
+
+
 func (p *limitedPool) initialize() {
 
-	p.work = make(chan *workUnit, p.workers*2)
+	p.work = make(chan *workUnit, p.qsize)
 	p.cancel = make(chan struct{})
 	p.closed = false
 
@@ -198,8 +220,8 @@ func (p *limitedPool) Queue(fn WorkFunc) WorkUnit {
 		//
 		workLen := len(p.work)
 		if  workLen >0{
-			// works less than  30% works,create work
-			if int(p.currworkers * 100) / workLen < 30 && p.currworkers < p.workers{
+			// need more work
+			if  p.currworkers < p.workers{
 				needMoreWorks = true
 			}
 		}
@@ -213,8 +235,8 @@ func (p *limitedPool) Queue(fn WorkFunc) WorkUnit {
 			//
 			workLen = len(p.work)
 			if  workLen >0 {
-				// works less than  30% works,create work
-				if int(p.currworkers * 100) / workLen < 30 && p.currworkers < p.workers{
+				// create work
+				if p.currworkers < p.workers{
 					p.newWorker(p.work,p.cancel)
 					p.currworkers++
 				}

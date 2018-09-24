@@ -162,3 +162,20 @@ func (p *unlimitedPool) Close() {
 func (p *unlimitedPool) Batch() Batch {
 	return newBatch(p)
 }
+
+
+//current workers
+func (p *unlimitedPool) CurrWorkers() uint {
+	return p.IncompleteTasks()
+}
+
+func (p *unlimitedPool) MaxWorkers() uint{
+	return uint(math.MaxUint32)
+}
+
+//Incomplete Task
+func(p *unlimitedPool) IncompleteTasks() uint{
+	p.m.Lock()
+	defer p.m.Unlock()
+	return uint(len(p.units))
+}

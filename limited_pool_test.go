@@ -6,6 +6,7 @@ import (
 	"time"
 
 	. "gopkg.in/go-playground/assert.v1"
+	"fmt"
 )
 
 // NOTES:
@@ -174,4 +175,36 @@ func TestPanicRecovery(t *testing.T) {
 
 func TestBadWorkerCount(t *testing.T) {
 	PanicMatches(t, func() { NewLimited(0) }, "invalid workers '0'")
+}
+
+
+func TestNewExtLimited(t *testing.T) {
+	var res []WorkUnit
+
+	pool := NewExtLimited(4,8,1000,5 *time.Second)
+	defer pool.Close()
+
+	newFunc := func(d time.Duration) WorkFunc {
+		return func(WorkUnit) (interface{}, error) {
+			time.Sleep(2*time.Second)
+			return nil, nil
+		}
+	}
+
+	go func() {
+		for {
+			fmt.Printf("ExtPool : %d/%d tasks:%d\n",pool.CurrWorkers(),pool.MaxWorkers(),pool.IncompleteTasks())
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
+
+	for i := 0; i < 100; i++ {
+		wu := pool.Queue(newFunc(time.Second * 5))
+		res = append(res, wu)
+	}
+	time.Sleep(10 *time.Second)
+	for _,r := range res{
+		r.Wait()
+	}
 }
