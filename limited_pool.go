@@ -50,6 +50,9 @@ func NewExtLimited(minworkers,maxworkers uint,qsize uint,ttl time.Duration) Pool
 	}
 	if p.minWorkers <= 0 {
 		p.minWorkers = maxworkers * 5 / 10
+		if p.minWorkers <=0{
+			p.minWorkers = 1
+		}
 	}
 
 	if p.qsize < maxworkers *2{
