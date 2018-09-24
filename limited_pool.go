@@ -5,6 +5,7 @@ import (
 	"math"
 	"runtime"
 	"sync"
+	"time"
 )
 
 var _ Pool = new(limitedPool)
@@ -16,6 +17,10 @@ type limitedPool struct {
 	cancel  chan struct{}
 	closed  bool
 	m       sync.RWMutex
+	//the max duration goroutine alive
+	currworkers uint //current workers
+	minWorkers uint
+	timeToLive time.Duration
 }
 
 // NewLimited returns a new limited pool instance
@@ -25,10 +30,25 @@ func NewLimited(workers uint) Pool {
 		panic("invalid workers '0'")
 	}
 
+	timeToLive := 1 * time.Minute
+	return NewExtLimited((workers * 10)/8,workers,timeToLive)
+}
+
+// NewExtLimited returns a new limited pool instance with args
+func NewExtLimited(minworkers,workers uint,ttl time.Duration) Pool{
+	if workers == 0 || minworkers ==0 {
+		panic("invalid workers '0'")
+	}
+
 	p := &limitedPool{
 		workers: workers,
 	}
-
+	p.timeToLive = 1 * time.Minute
+	//0.5
+	p.minWorkers =  (workers * 10)/5
+	if p.minWorkers <= 0 {
+		p.minWorkers = 1
+	}
 	p.initialize()
 
 	return p
@@ -40,9 +60,11 @@ func (p *limitedPool) initialize() {
 	p.cancel = make(chan struct{})
 	p.closed = false
 
-	// fire up workers here
-	for i := 0; i < int(p.workers); i++ {
+	p.currworkers = 0
+	// fire up min workers here
+	for i := 0; i < int(p.minWorkers); i++ {
 		p.newWorker(p.work, p.cancel)
+		p.currworkers++
 	}
 }
 
@@ -74,36 +96,79 @@ func (p *limitedPool) newWorker(work chan *workUnit, cancel chan struct{}) {
 		var err error
 
 		for {
-			select {
-			case wu = <-work:
 
-				// possible for one more nilled out value to make it
-				// through when channel closed, don't quite understad the why
-				if wu == nil {
-					continue
-				}
+			if p.timeToLive <= 0 {
 
-				// support for individual WorkUnit cancellation
-				// and batch job cancellation
-				if wu.cancelled.Load() == nil {
-					value, err = wu.fn(wu)
+				select {
+				case wu = <-work:
 
-					wu.writing.Store(struct{}{})
-
-					// need to check again in case the WorkFunc cancelled this unit of work
-					// otherwise we'll have a race condition
-					if wu.cancelled.Load() == nil && wu.cancelling.Load() == nil {
-						wu.value, wu.err = value, err
-
-						// who knows where the Done channel is being listened to on the other end
-						// don't want this to block just because caller is waiting on another unit
-						// of work to be done first so we use close
-						close(wu.done)
+					// possible for one more nilled out value to make it
+					// through when channel closed, don't quite understad the why
+					if wu == nil {
+						continue
 					}
+
+					// support for individual WorkUnit cancellation
+					// and batch job cancellation
+					if wu.cancelled.Load() == nil {
+						value, err = wu.fn(wu)
+
+						wu.writing.Store(struct{}{})
+
+						// need to check again in case the WorkFunc cancelled this unit of work
+						// otherwise we'll have a race condition
+						if wu.cancelled.Load() == nil && wu.cancelling.Load() == nil {
+							wu.value, wu.err = value, err
+
+							// who knows where the Done channel is being listened to on the other end
+							// don't want this to block just because caller is waiting on another unit
+							// of work to be done first so we use close
+							close(wu.done)
+						}
+					}
+				case <-cancel:
+					return
 				}
 
-			case <-cancel:
-				return
+			}else{
+				select {
+				case wu = <-work:
+
+					// possible for one more nilled out value to make it
+					// through when channel closed, don't quite understad the why
+					if wu == nil {
+						continue
+					}
+
+					// support for individual WorkUnit cancellation
+					// and batch job cancellation
+					if wu.cancelled.Load() == nil {
+						value, err = wu.fn(wu)
+
+						wu.writing.Store(struct{}{})
+
+						// need to check again in case the WorkFunc cancelled this unit of work
+						// otherwise we'll have a race condition
+						if wu.cancelled.Load() == nil && wu.cancelling.Load() == nil {
+							wu.value, wu.err = value, err
+
+							// who knows where the Done channel is being listened to on the other end
+							// don't want this to block just because caller is waiting on another unit
+							// of work to be done first so we use close
+							close(wu.done)
+						}
+					}
+				case <-time.After(p.timeToLive):
+					//too long idle exit
+					p.m.Lock()
+					if p.currworkers >= p.minWorkers{
+						return
+					}
+					p.m.Unlock()
+
+				case <-cancel:
+					return
+				}
 			}
 		}
 
@@ -129,9 +194,33 @@ func (p *limitedPool) Queue(fn WorkFunc) WorkUnit {
 			return
 		}
 
+		needMoreWorks := false
+		//
+		workLen := len(p.work)
+		if  workLen >0{
+			// works less than  30% works,create work
+			if int(p.currworkers * 100) / workLen < 30 && p.currworkers < p.workers{
+				needMoreWorks = true
+			}
+		}
+
 		p.work <- w
 
 		p.m.RUnlock()
+
+		p.m.Lock()
+		if needMoreWorks{
+			//
+			workLen = len(p.work)
+			if  workLen >0 {
+				// works less than  30% works,create work
+				if int(p.currworkers * 100) / workLen < 30 && p.currworkers < p.workers{
+					p.newWorker(p.work,p.cancel)
+					p.currworkers++
+				}
+			}
+		}
+		p.m.Unlock()
 	}()
 
 	return w
