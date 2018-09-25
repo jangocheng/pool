@@ -2,7 +2,7 @@ package pool
 
 const (
 	errCancelled = "ERROR: Work Unit Cancelled"
-	errRecovery  = "ERROR: Work Unit failed due to a recoverable error: '%v'\n, Stack Trace:\n %s"
+	errRecovery  = "ERROR: Work Unit failed due to a recoverable error: '%v'\n, %s"
 	errClosed    = "ERROR: Work Unit added/run after the pool had been closed or cancelled"
 )
 

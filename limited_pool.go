@@ -103,9 +103,8 @@ func (p *limitedPool) newWorker(work chan *workUnit, cancel chan struct{}) {
 		defer func(p *limitedPool) {
 			if err := recover(); err != nil {
 
-				trace := make([]byte, 1<<16)
-				n := runtime.Stack(trace, true)
-
+				trace := make([]byte, 1<<8)
+				n := runtime.Stack(trace, false)
 				s := fmt.Sprintf(errRecovery, err, string(trace[:int(math.Min(float64(n), float64(7000)))]))
 
 				iwu := wu
